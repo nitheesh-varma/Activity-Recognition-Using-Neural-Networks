@@ -1,0 +1,224 @@
+---
+title: "CS 422"
+output: 
+  html_notebook:
+    toc: yes
+    toc_float: yes
+author: Nitheesh Varma Varadaraju, 
+        Illinois Institute of Technology
+---
+
+```{r}
+library(keras)
+library(dplyr)
+library(caret)
+rm(list=ls())
+setwd("/cloud/project/HW7")
+df <- read.csv("activity-small.csv")
+head(df)
+# Seed the PRNG
+set.seed(1122)
+df <- df[sample(nrow(df)), ] # Shuffle, as all of the data in the .csv file
+                             # is ordered by label!  This will cause problems
+                             # if we do not shuffle as the validation split
+                             # may not include observations of class 3 (the
+                             # class that occurs at the end).  The validation_
+                             # split parameter samples from the end of the
+                             # training set.
+
+# Scale the dataset.  Copy this block of code as is and use it; we will get
+# into the detail of why we scale.  We will scale our dataset so all of the
+# predictors have a mean of 0 and standard deviation of 1.  Scale test and
+# training splits independently!
+
+indx <- sample(1:nrow(df), 0.20*nrow(df))
+test.df  <- df[indx, ]
+train.df <- df[-indx, ]
+
+label.test <- test.df$label
+test.df$label <- NULL
+test.df <- as.data.frame(scale(test.df))
+test.df$label <- label.test
+rm(label.test)
+
+label.train <- train.df$label
+train.df$label <- NULL
+train.df <- as.data.frame(scale(train.df))
+train.df$label <- label.train
+rm(label.train)
+rm(indx)
+```
+
+# --- Your code goes below ---
+### 2.1
+```{r}
+x_train<-train.df[,c("xaccel","yaccel","zaccel")]
+x_test<-as.matrix(test.df[,c("xaccel","yaccel","zaccel")])
+
+create_model <- function(batchsize){
+  model <- NULL
+    model <- keras_model_sequential() %>%
+    layer_dense(units = 6, activation="relu", input_shape=c(3)) %>%
+    layer_dense(units = 4, activation="softmax")
+  model %>% 
+    compile(loss = "categorical_crossentropy", 
+            optimizer="adam", 
+            metrics=c("accuracy"))
+  begin <- Sys.time()
+  model %>% fit(
+    data.matrix(x_train),
+    to_categorical(train.df$label),
+    epochs=100,
+    batch_size= batchsize,
+    validation_split=0.20
+  )
+  end <- Sys.time()
+  timetaken<-as.numeric(difftime(end,begin,units = "secs"),units="secs")
+  print(timetaken)
+  k <- list("model" = model,"time" = timetaken)
+  k
+}
+```
+
+### for batch gradient descent
+```{r}
+model_n <- create_model(1)
+model<-model_n$model
+model %>% evaluate(as.matrix(x_test), to_categorical(test.df$label))
+pred.prob <- predict(model, as.matrix(x_test))
+pred.class<-apply(pred.prob, 1, function(x) which.max(x)-1)
+```
+
+### 2.1 a
+```{r}
+y_test<-test.df$label
+confus.mat<-confusionMatrix(as.factor(pred.class),as.factor(y_test))
+print(paste("Overall Accuracy : ",confus.mat$overall["Accuracy"]))
+```
+
+### 2.1 b 
+```{r}
+print("Batch Gradient descent")
+t<-confus.mat$byClass
+t<-t %>% round(3)
+print(paste("Class 0: Sens. = ",t[1,1]," ,Spec.= ",t[1,2],", Bal.Acc = ",t[1,11]))
+print(paste("Class 1: Sens. = ",t[2,1]," ,Spec.= ",t[2,2],", Bal.Acc = ",t[2,11]))
+print(paste("Class 2: Sens. = ",t[3,1]," ,Spec.= ",t[3,2],", Bal.Acc = ",t[3,11]))
+print(paste("Class 3: Sens. = ",t[4,1]," ,Spec.= ",t[4,2],", Bal.Acc = ",t[4,11]))
+```
+
+### 2b
+```{r}
+#for batch size 1:
+model.1 <- model_n
+model <- NULL
+
+# for batchsize 32:
+model.32 <- create_model(32)
+model <- NULL
+
+# for batchsize 64:
+model.64 <- create_model(64)
+model <- NULL
+
+# for batchsize 128:
+model.128 <- create_model(128)
+model <- NULL
+
+# for batchsize 256:
+model.256 <- create_model(256)
+
+```
+### 2c
+```{r}
+val <- function(g,b_s){
+  model_f <- g$model
+  model_f %>% evaluate(as.matrix(x_test),to_categorical(test.df$label))
+  pred.prob <- predict(model_f, as.matrix(x_test))
+  pred.class <- apply(pred.prob,1,function(x) which.max(x)-1)
+  confus.mat<-confusionMatrix(as.factor(test.df$label),as.factor(pred.class))
+  cat("Batch size :",b_s,"\n")
+  cat("\tTime Taken to train the Neural Network :",g$time,"\n")
+  cat("\tOverall accuracy:",confus.mat$overall["Accuracy"],"\n")
+  t<-confus.mat$byClass
+  t<-t %>% round(3)
+  cat("\tClass 0: Sens.=", t[1,1], ", Spec.=", t[1, 2],
+      ",Bal. Acc=", t[1,11], "\n")
+  cat("\tClass 1: Sens.=", t[2,1], ", Spec.=", t[2, 2],
+      ", Bal. Acc=", t[2,11], "\n")
+  cat("\tClass 2: Sens.=", t[3,1], ", Spec.=", t[3, 2],
+      ", Bal. Acc=", t[3,11], "\n")
+  cat("\tClass 3: Sens.=", t[4,1], ", Spec.=", t[4, 2],
+      ", Bal. Acc=", t[4,11], "\n")
+  
+}
+val(model.1,1)
+val(model.32,32)
+val(model.64,64)
+val(model.128,128)
+val(model.256,256)
+```
+### c - (i)
+##### We can see that as the batch size increases the time to train the neural network decreases. This is because in higher batch sizes the number of samples the network is getting trained per batch is also higher. 
+
+### c - (ii)
+##### From the above results we can see that the overall acuuracy,balanced accuracy etc.changes , it is mostly because the model is getting trained on more no. samples per batch.
+
+### d
+```{r}
+model <- NULL
+model <- keras_model_sequential() %>%
+  layer_dense(units = 6, activation="relu", input_shape=c(3)) %>%
+  layer_dense(units = 54, activation="tanh") %>%
+  layer_dense(units = 4, activation="softmax")
+model %>% 
+  compile(loss = "categorical_crossentropy", 
+          optimizer="adam", 
+          metrics=c("accuracy"))
+begin <- Sys.time()
+model %>% fit(
+  data.matrix(x_train),
+  to_categorical(train.df$label),
+  epochs=100,
+  batch_size= 1,
+  validation_split=0.20
+)
+end <- Sys.time()
+timetaken<-as.numeric(difftime(end,begin,units = "secs"),units="secs")
+print(timetaken)
+k1 <- list("model" = model,"time" = timetaken)
+```
+##### seeing if there is any improvement by the hidden layer 
+```{r}
+val(k1,1)
+```
+##### checking another time with a new activation function and new number of neurons:
+```{r}
+model <- NULL
+model <- keras_model_sequential() %>%
+  layer_dense(units = 6, activation="relu", input_shape=c(3)) %>%
+  layer_dense(units = 66, activation="sigmoid") %>%
+  layer_dense(units = 4, activation="softmax")
+model %>% 
+  compile(loss = "categorical_crossentropy", 
+          optimizer="adam", 
+          metrics=c("accuracy"))
+begin <- Sys.time()
+model %>% fit(
+  data.matrix(x_train),
+  to_categorical(train.df$label),
+  epochs=100,
+  batch_size= 1,
+  validation_split=0.20
+)
+end <- Sys.time()
+timetaken<-as.numeric(difftime(end,begin,units = "secs"),units="secs")
+print(timetaken)
+k2 <- list("model" = model,"time" = timetaken)
+```
+##### seeing the results
+```{r}
+val(k2,1)
+```
+
+##### Adding new hidden layers caused a decrease in the overall performance for me. This partially might be because Relu is a better activation function than sigmoid and tanh for deep learning models, but there may be some models where this hypothesis might change.
